@@ -43,15 +43,16 @@ class Flow(object):
         for g, d in self.gb:
             param = {}
 
-            d["deviation_from_plane_tol"] = 1e-4
+            d["deviation_from_plane_tol"] = 1e-8
             d["is_tangential"] = True
 
             # assign permeability
-            k = self.data["k"] * np.ones(g.num_cells)
+            k = data["k"](g, d)
 
             # no source term is assumed by the user
             param["second_order_tensor"] = pp.SecondOrderTensor(kxx=k, kyy=1, kzz=1)
-            param["source"] = data["source"](g, data, data["tol"])
+
+            param["source"] = data["source"](g, d)
 
             # Boundaries
             b_faces = g.tags["domain_boundary_faces"].nonzero()[0]
@@ -63,24 +64,6 @@ class Flow(object):
                 param["bc"] = pp.BoundaryCondition(g, np.empty(0), np.empty(0))
 
             pp.initialize_data(g, d, self.model, param)
-
-#        for e, d in self.gb.edges():
-#            mg = d["mortar_grid"]
-#            g_slave, g_master = self.gb.nodes_of_edge(e)
-#            check_P = mg.slave_to_mortar_avg()
-#
-#            if "fracture" in g_slave.name or "fracture" in g_master.name:
-#                aperture = self.gb.node_props(g_slave, pp.STATE)["fracture_aperture"]
-#                aperture_initial = self.gb.node_props(g_slave, pp.STATE)["fracture_aperture_initial"]
-#                k_n = self.data["fracture_k_n"]
-#            else:
-#                aperture = self.gb.node_props(g_slave, pp.STATE)["layer_aperture"]
-#                aperture_initial = self.gb.node_props(g_slave, pp.STATE)["layer_aperture_initial"]
-#                k_n = self.data["layer_k_n"]
-#
-#            k = 2 * check_P * (np.power(aperture/aperture_initial, alpha-1) * k_n)
-#            pp.initialize_data(mg, d, self.model, {"normal_diffusivity": k})
-#
 
     # ------------------------------------------------------------------------------#
 
@@ -103,7 +86,6 @@ class Flow(object):
             # retrive the discretization of the master and slave grids
             discr_master = self.gb.node_props(g_master, pp.DISCRETIZATION)[self.variable][self.discr_name]
             discr_slave = self.gb.node_props(g_slave, pp.DISCRETIZATION)[self.variable][self.discr_name]
-
             coupling = self.coupling(self.model, discr_master, discr_slave)
 
             d[pp.PRIMARY_VARIABLES] = {self.mortar: {"cells": 1}}
@@ -131,6 +113,10 @@ class Flow(object):
             var = d[pp.STATE][self.variable]
             d[pp.STATE][self.pressure] = discr.extract_pressure(g, var, d)
             d[pp.STATE][self.flux] = discr.extract_flux(g, var, d)
+            if "original_id" in g.tags:
+                d[pp.STATE]["original_id"] = g.tags["original_id"] * np.ones(g.num_cells)
+            if "condition" in g.tags:
+                d[pp.STATE]["condition"] = g.tags["condition"] * np.ones(g.num_cells)
 
         # export the P0 flux reconstruction
         pp.project_flux(self.gb, discr, self.flux, self.P0_flux, self.mortar)
