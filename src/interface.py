@@ -4,11 +4,12 @@ import scipy.sparse as sps
 
 # ------------------------------------------------------------------------------#
 
-def detect_interface(gb, network, scheme, condition_interface):
+def detect_interface(gb, network, network_original, scheme, condition_interface, tol):
 
     # new points to define the domains
-    dom_pts = dict.fromkeys(network.tags["original_id"], np.empty(0))
-    dom_R = dict.fromkeys(network.tags["original_id"], np.empty((3, 3)))
+    dom_pts = dict.fromkeys(network.tags["original_id"], np.empty((3, 0)))
+    # the condition (True considition is satisfied with a <, False with a >) at each interface point
+    dom_cond = dict.fromkeys(network.tags["original_id"], np.empty((2, 0)))
 
     # do only this computation only for the higher dimensional grids
     for g in gb.grids_of_dimension(gb.dim_max()):
@@ -19,20 +20,77 @@ def detect_interface(gb, network, scheme, condition_interface):
         flux = _get_flux(g, d, gb.edges_of_node(g), scheme.flux, scheme.mortar)
 
         # compute the new points according to the interface
-        f_id = g.tags["original_id"]
-        new_pts, dom_R[f_id] = _has_interface(g, d, scheme, flux, condition_interface)
+        f_id = int(np.atleast_1d(g.tags["original_id"])[0])
+        new_pts, cond_pts = _has_interface(g, d, scheme, flux, condition_interface, tol)
 
-        # save the points
+        # save the information
         dom_pts[f_id] = np.hstack((dom_pts[f_id], new_pts))
+        dom_cond[f_id] = np.hstack((dom_cond[f_id], cond_pts))
+
+    new_network_pts = np.empty((3, 0))
+    new_network_edges = np.empty((2, 0), dtype=np.int)
+    new_network_tag_original_id = np.empty((0), dtype=np.int)
+    new_network_tag_condition = np.empty((0), dtype=np.int)
+    num_pts = 0
 
     # for each orginal id order the points
+    for f_id in np.unique(network.tags["original_id"]):
 
-    print(dom_pts)
-    print(dom_R)
-    import pdb; pdb.set_trace()
+        # consider also the points from the original network
+        mask_original = network_original.tags["original_id"] == f_id
+        edges_original = network_original.edges[:, mask_original].ravel()
+        pts_original = network_original.pts[:, np.unique(edges_original)]
 
-        # devo considerare tutte le griglie che originariamente si chiamavano in un modo e poi farne un eventuale merge,
-        # altrimenti rischio che mi esplode il loro numero
+        if pts_original.shape[1] == 2:
+            pts_original = np.vstack((pts_original, np.zeros(pts_original.shape[0])))
+
+        # add the original pts to the list
+        all_pts = np.hstack((dom_pts[f_id], pts_original))
+        # we add to the condition a -1 for the points in the original network
+        cond = np.hstack((dom_cond[f_id], [[-1, -1]]*pts_original.shape[1]))
+
+        # we need to order the points now, we assume again that we are on a line
+        R = pp.map_geometry.project_line_matrix(all_pts, tol=1e-5)
+        pts = np.dot(R, all_pts)
+
+        # determine which dimension is active
+        check = np.sum(np.abs(pts.T - pts[:, 0]), axis=0)
+        dim = np.logical_not(np.isclose(check/np.sum(check), 0, atol=1e-5, rtol=0))
+        mask = np.argsort(pts[dim, :].ravel())
+
+        # order the points and the condition
+        all_pts = all_pts[:, mask]
+        cond = cond[:, mask]
+
+        # compute the edge condition from the point condition
+        mask = np.where(cond[0, :] == -1)[0]
+        # remove the last point, the condition is given by the "left" n-1 point
+        mask = np.setdiff1d(mask, cond.shape[1] - 1)
+        # inherit the condition from the left
+        cond[:, mask] = cond[0, mask+1]
+        # set the condition for the edges
+        new_network_tag_condition = np.hstack((new_network_tag_condition, cond[1, :-1]))
+
+        # we assume no duplicate pts
+        # pts, new_2_old, old_2_new = pp.utils.setmembership.unique_columns_tol(pts, tol=tol)
+        # construct the edges
+        edges = np.empty((2, pts.shape[1]-1), dtype=np.int)
+        edges[0, :] = np.arange(edges.shape[1]) + num_pts
+        edges[1, :] = edges[0, :] + 1
+        num_pts += pts.shape[1]
+
+        # collect all the infromations
+        new_network_pts = np.hstack((new_network_pts, all_pts))
+        new_network_edges = np.hstack((new_network_edges, edges))
+        new_network_tag_original_id = np.hstack((new_network_tag_original_id,
+                                                 f_id * np.ones(edges.shape[1], dtype=np.int)))
+
+    # create the new network
+    new_network = pp.FractureNetwork2d(new_network_pts[:2, :], new_network_edges, network.domain)
+    new_network.tags["original_id"] = new_network_tag_original_id
+    new_network.tags["condition"] = new_network_tag_condition
+
+    return new_network
 
 # ------------------------------------------------------------------------------#
 # ------------------------------------------------------------------------------#
@@ -54,7 +112,7 @@ def _get_flux(g, d, g_edges, flux_name, mortar_name):
             # project the mortar variable back to the higher dimensional
             # problem
             flux += (
-                sign * g_m.master_to_mortar_avg().T * d_e[pp.STATE][mortar_name]
+                sign * g_m.primary_to_mortar_avg().T * d_e[pp.STATE][mortar_name]
             )
 
     return flux
@@ -72,16 +130,33 @@ def _has_interface(g, d, scheme, flux, condition_interface, evaluation_tol=1e-5,
 
     # Map the domain to a reference geometry (i.e. equivalent to compute
     # surface coordinates in 1d and 2d)
-    _, f_normals, f_centers, R, dim, node_coords = pp.map_geometry.map_grid(
-        g, tol = 1e-5
-    )
-    node_coords = node_coords[: g.dim, :]
+    R = pp.map_geometry.project_line_matrix(g.nodes, tol=1e-5)
+    f_centers = np.dot(R, g.face_centers)
+    node_coords = np.dot(R, g.nodes)
+
+    # determine which dimension is active
+    check = np.sum(np.abs(f_centers.T - f_centers[:, 0]), axis=0)
+    dim = np.logical_not(np.isclose(check/np.sum(check), 0, atol=1e-5, rtol=0))
+
+    # compute the note to translate the pts afterwards
+    node_t = np.zeros((3, 1))
+    mask = np.logical_not(dim)
+    node_t[mask, :] = f_centers[mask, 0].reshape((np.sum(mask), -1))
+
+    # map the geometrical data
+    node_coords = (node_coords - node_t)[dim, :]
+    f_centers = (f_centers - node_t)[dim, :]
+    f_normals = np.dot(R, g.face_normals)[dim, :]
 
     # get the opposite face-nodes
     cell_face_to_opposite_node = d[discr.cell_face_to_opposite_node]
 
     # list of grid points + interface points with the condition intersection label
     interface_pts = np.empty((f_centers.shape[0]+1, 0))
+    # for each interface point we store if, in the local coordinate system, the condition is true or false
+    # on the left and on the right. The value of True means the condition is satisfied with a <, while with
+    # a False the condition is satisfied with a >
+    interface_cond = np.empty((2, 0), dtype=np.bool)
 
     for c in np.arange(g.num_cells):
         # For the current cell retrieve its faces
@@ -103,7 +178,7 @@ def _has_interface(g, d, scheme, flux, condition_interface, evaluation_tol=1e-5,
                     dim,
                     R,
                 )
-            check[idx] = condition_interface(np.dot(P, flux[faces_loc]), "<")
+            check[idx] = condition_interface(np.dot(P, flux[faces_loc]), "<", evaluation_tol)
 
         # if the condition is valid for a cell-boundary we might need to compute internally
         if not(np.all(check) or np.all(np.logical_not(check))) and np.any(check):
@@ -125,31 +200,23 @@ def _has_interface(g, d, scheme, flux, condition_interface, evaluation_tol=1e-5,
                 if condition_interface(np.dot(P, flux[faces_loc]), "==", evaluation_tol):
                     not_okay = False
                 else:
-                    cond = condition_interface(np.dot(P, flux[faces_loc]), "<")
+                    cond = condition_interface(np.dot(P, flux[faces_loc]), "<", evaluation_tol)
                     bd_pts[:, check == cond] = probe_pt
                 it += 1
-            # recover the 3d representation of the found point
+            if it == evaluation_max_iter:
+                raise ValueError
+
+            # store the interface point
             interface_pts = np.hstack((interface_pts, np.vstack((probe_pt, True))))
+            # check the ordering
+            ordering = np.all(np.equal(np.sign(probe_pt - f_centers[:, faces_loc]), [1, -1]))
+            check = check if ordering else np.invert(check)
+            interface_cond = np.hstack((interface_cond, np.atleast_2d(check).T))
 
-    # collect all the pts for the current 1d domain
-    all_pts = np.vstack((f_centers, np.zeros(f_centers.shape[1])))
-    all_pts = np.hstack((all_pts, interface_pts))
+    # map back the interface points since the mapping is local to the grid
+    pts = np.zeros((3, interface_pts.shape[1]))
+    pts[dim] = interface_pts[0]
 
-    # order the pts
-    mask = np.argsort(all_pts[0, :])
-    all_pts = all_pts[:, mask]
-
-    # create the new points for the new division, we take the boundary and all the interface pts
-    mask = all_pts[1, :] == 1
-    mask[0] = True
-    mask[-1] = True
-
-    return all_pts[0, mask], R
-
-    ## map back all the found pts
-    #new_pts = np.zeros((3, np.sum(mask)))
-    #new_pts[dim, :] = all_pts[0, mask]
-
-    #return np.dot(R.T, new_pts)
+    return np.dot(R.T, pts + node_t), interface_cond
 
 # ------------------------------------------------------------------------------#
