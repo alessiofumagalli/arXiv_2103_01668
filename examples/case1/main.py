@@ -12,8 +12,7 @@ from interface import detect_interface
 
 # ------------------------------------------------------------------------------#
 
-def condition_interface(flux, op, tol=0):
-    flux_threshold = 1.1
+def condition_interface(flux_threshold, flux, op, tol=0):
     norm = np.linalg.norm(flux)
     if op == "<":
         return (norm - flux_threshold) < tol
@@ -29,25 +28,49 @@ def condition_interface(flux, op, tol=0):
 # MI ASPETTO CHE IL FORCH PRENDA LA ZONA AD ALTO INFLO MENTRE IL DARCY QUELLA A BASSO INFO.
 # CHIARAMENTE MI DIPENDE DALLA CONDIZIONE DI SOGLIA
 
+
+### PROSSOMO STEP: IDENTIFICARE I DOMINI, CHI E" OMEGA1 E CHI E" OMEGA2
+
+
 def main():
 
+    # tolerance in the computation
+    tol = 1e-10
+
     # assign the flag for the low permeable fractures
-    mesh_size = 0.25
+    mesh_size = 1e-3
     mesh_kwargs = {"mesh_size_frac": mesh_size, "mesh_size_min": mesh_size / 20}
 
     # read and mark the original fracture network, the fractures id will be preserved
     file_name = "network.csv"
-    network = pp.fracture_importer.network_2d_from_csv(file_name)
-    network.tags["original_id"] = np.arange(network.num_frac)
+    domain = {"xmin": 0, "xmax": 1, "ymin": -1, "ymax": 1}
+    network = pp.fracture_importer.network_2d_from_csv(file_name, domain=domain)
+    # set the original id
+    network.tags["original_id"] = np.arange(network.num_frac, dtype=np.int)
+    # save the original network
+    network_original = network.copy()
 
-    import pdb; pdb.set_trace()
+    # WE SET NOW THE INITIAL CONDITION BY ASSUMING A P0_FLUX KNOWN
+
+    # set the condition, meaning if for a branch we solve problem with a < (1) or with > (0)
+    # for simplicity we just set all equal
+    network.tags["condition"] = np.ones(network.num_frac, dtype=np.int)
+
+    # DA SISTEMARE IL FATTO CHE POTREBBE NON GENERARE INTERFACCE
+
+    flux_threshold = 0.15
+    cond = lambda flux, op, tol=0: condition_interface(flux_threshold, flux, op, tol)
 
     iteration = 0
+    max_iteration = 5
     okay = False
     while not okay:
 
+        print("iteration", iteration)
+
         # create the grid bucket
-        gb = network.mesh(mesh_kwargs, dfn=True, preserve_fracture_tags="original_id")
+        #pp.plot_fractures(network.pts, network.edges, network.domain, np.arange(network.edges.shape[1]))
+        gb = network.mesh(mesh_kwargs, dfn=True, preserve_fracture_tags=["original_id", "condition"])
 
         # create the discretization
         discr = Flow(gb)
@@ -58,21 +81,31 @@ def main():
         x = sps.linalg.spsolve(A, b)
         discr.extract(x)
 
-        # construct the new network such that the interfaces are respected
-        network = detect_interface(gb, network, discr, condition_interface)
-
         # exporter
         save = pp.Exporter(gb, "case1", folder_name="solution")
-        save.write_vtk([discr.pressure, discr.P0_flux], time_step=iteration)
+        variable_to_export = [discr.pressure, discr.P0_flux, "original_id", "condition"]
+        save.write_vtk(variable_to_export, time_step=iteration)
 
-        if iteration > -1: # exit condition to check
+        # save the network points to check if we have reached convergence
+        old_network_pts = network.pts
+
+        # construct the new network such that the interfaces are respected
+        network = detect_interface(gb, network, network_original, discr, cond, tol)
+
+        # check if any point in the network has changed
+        all_pts = np.hstack((old_network_pts, network.pts))
+        distances = pp.distances.pointset(all_pts) > tol
+        # consider only the block between the old and new points
+        distances = distances[:old_network_pts.shape[1], -network.pts.shape[1]:]
+        # check if an old point has a point equal in the new set
+        check = np.any(np.logical_not(distances), axis=0)
+
+        if np.all(check) or iteration > max_iteration:
             okay = True
-        else:
-            network.pts[:, interface_node] *= np.random.rand()
-
         iteration += 1
 
     save.write_pvd(np.arange(iteration), np.arange(iteration))
+
 
 if __name__ == "__main__":
     main()
