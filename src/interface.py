@@ -62,6 +62,10 @@ def detect_interface(gb, network, network_original, scheme, condition_interface,
         all_pts = all_pts[:, mask]
         cond = cond[:, mask]
 
+        # we need to flip the condition
+        if np.any(np.sort(mask[1:-1]) != mask[1:-1]):
+            cond = np.flipud(cond)
+
         # compute the edge condition from the point condition
         mask = np.where(cond[0, :] == -1)[0]
         # remove the last point, the condition is given by the "left" n-1 point
