@@ -3,6 +3,11 @@ import porepy as pp
 
 class Flow(object):
 
+    # post process variables
+    pressure = "pressure"
+    flux = "darcy_flux"  # it has to be this one
+    P0_flux = "P0_darcy_flux"
+
     # ------------------------------------------------------------------------------#
 
     def __init__(self, gb, model="flow"):
@@ -29,11 +34,6 @@ class Flow(object):
         # master variable name
         self.variable = self.model + "_variable"
         self.mortar = self.model + "_lambda"
-
-        # post process variables
-        self.pressure = "pressure"
-        self.flux = "darcy_flux"  # it has to be this one
-        self.P0_flux = "P0_darcy_flux"
 
     # ------------------------------------------------------------------------------#
 
