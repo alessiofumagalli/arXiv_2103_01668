@@ -9,6 +9,7 @@ from data import test_data
 import sys; sys.path.insert(0, "../../src/")
 from flow import Flow
 from interface import detect_interface
+from exporter import write_network_pvd, make_file_name
 
 # ------------------------------------------------------------------------------#
 
@@ -23,14 +24,9 @@ def condition_interface(flux_threshold, flux, op, tol=0):
 
 # ------------------------------------------------------------------------------#
 
-
 # QUANDO AVRO' IL FORCHHAIMER, FACCIO UNA ZONA AD ALTO INFLO E UNA A BASSO INFLO.
 # MI ASPETTO CHE IL FORCH PRENDA LA ZONA AD ALTO INFLO MENTRE IL DARCY QUELLA A BASSO INFO.
 # CHIARAMENTE MI DIPENDE DALLA CONDIZIONE DI SOGLIA
-
-
-### PROSSOMO STEP: IDENTIFICARE I DOMINI, CHI E" OMEGA1 E CHI E" OMEGA2
-
 
 def main():
 
@@ -39,6 +35,7 @@ def main():
 
     # assign the flag for the low permeable fractures
     mesh_size = 1e-3
+    tol_network = mesh_size
     mesh_kwargs = {"mesh_size_frac": mesh_size, "mesh_size_min": mesh_size / 20}
 
     # read and mark the original fracture network, the fractures id will be preserved
@@ -61,8 +58,12 @@ def main():
     flux_threshold = 0.15
     cond = lambda flux, op, tol=0: condition_interface(flux_threshold, flux, op, tol)
 
+    file_name = "case1"
+    folder_name = "./solution/"
+    variable_to_export = [Flow.pressure, Flow.P0_flux, "original_id", "condition"]
+
     iteration = 0
-    max_iteration = 5
+    max_iteration = 100
     okay = False
     while not okay:
 
@@ -82,19 +83,21 @@ def main():
         discr.extract(x)
 
         # exporter
-        save = pp.Exporter(gb, "case1", folder_name="solution")
-        variable_to_export = [discr.pressure, discr.P0_flux, "original_id", "condition"]
-        save.write_vtk(variable_to_export, time_step=iteration)
+        save = pp.Exporter(gb, "sol_" + file_name, folder_name=folder_name)
+        save.write(variable_to_export, time_step=iteration)
 
         # save the network points to check if we have reached convergence
         old_network_pts = network.pts
 
         # construct the new network such that the interfaces are respected
         network = detect_interface(gb, network, network_original, discr, cond, tol)
+        # export the current network with the associated tags
+        network_file_name = make_file_name(file_name, iteration)
+        network.write(network_file_name, data=network.tags, folder_name=folder_name)
 
         # check if any point in the network has changed
         all_pts = np.hstack((old_network_pts, network.pts))
-        distances = pp.distances.pointset(all_pts) > tol
+        distances = pp.distances.pointset(all_pts) > tol_network
         # consider only the block between the old and new points
         distances = distances[:old_network_pts.shape[1], -network.pts.shape[1]:]
         # check if an old point has a point equal in the new set
@@ -105,7 +108,7 @@ def main():
         iteration += 1
 
     save.write_pvd(np.arange(iteration), np.arange(iteration))
-
+    write_network_pvd(file_name, folder_name, np.arange(iteration))
 
 if __name__ == "__main__":
     main()

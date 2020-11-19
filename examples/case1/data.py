@@ -18,7 +18,7 @@ def perm(g, d):
         return 1 * np.ones(g.num_cells)
     # here is the condition satisfied with a >
     elif g.tags["condition"] == 0:
-        return 1e2 * np.ones(g.num_cells)
+        return 10 * np.ones(g.num_cells)
     else:
         import pdb; pdb.set_trace()
         raise ValueError
@@ -30,15 +30,18 @@ def source(g, d):
     if g.dim == 0:
         return np.zeros(g.num_cells)
 
-    # here is the condition satisfied with a <
-    if g.tags["condition"] == 1:
-        return 1 * g.cell_volumes
-    # here is the condition satisfied with a >
-    elif g.tags["condition"] == 0:
-        return 1 * g.cell_volumes
-    else:
-        import pdb; pdb.set_trace()
-        raise ValueError
+    cond1 = g.cell_centers[0, :] <= 0.3
+    cond2 = np.logical_and(g.cell_centers[0, :] > 0.3,
+                           g.cell_centers[0, :] < 0.7)
+    cond3 = g.cell_centers[0, :] >= 0.7
+
+    rhs = g.cell_volumes.copy()
+    rhs[cond1] *= 10
+    rhs[cond2] *= 1
+    rhs[cond3] *= 5
+
+    #return rhs
+    return g.cell_volumes
 
 # ------------------------------------------------------------------------------#
 
@@ -61,7 +64,7 @@ def bc(g, data, tol):
     labels[in_flow] = "dir"
     labels[out_flow] = "dir"
     bc_val[b_faces[in_flow]] = 0
-    bc_val[b_faces[out_flow]] = 0
+    bc_val[b_faces[out_flow]] = 0.01
 
     return labels, bc_val
 
