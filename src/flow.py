@@ -47,17 +47,17 @@ class Flow(object):
             d["is_tangential"] = True
 
             # assign permeability
-            k = data["k"](g, d)
+            k = data["k"](g, d, self)
 
             # no source term is assumed by the user
             param["second_order_tensor"] = pp.SecondOrderTensor(kxx=k, kyy=1, kzz=1)
 
-            param["source"] = data["source"](g, d)
+            param["source"] = data["source"](g, d, self)
 
             # Boundaries
             b_faces = g.tags["domain_boundary_faces"].nonzero()[0]
             if b_faces.size:
-                labels, param["bc_values"] = data["bc"](g, data, data["tol"])
+                labels, param["bc_values"] = data["bc"](g, data, data["tol"], self)
                 param["bc"] = pp.BoundaryCondition(g, b_faces, labels)
             else:
                 param["bc_values"] = np.zeros(g.num_faces)
