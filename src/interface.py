@@ -10,22 +10,30 @@ def detect_interface(gb, network, network_original, scheme, condition_interface,
     dom_pts = dict.fromkeys(network.tags["original_id"], np.empty((3, 0)))
     # the condition (True considition is satisfied with a <, False with a >) at each interface point
     dom_cond = dict.fromkeys(network.tags["original_id"], np.empty((2, 0)))
+    # the flux computed on all the faces of the grid
+    dom_flux = dict.fromkeys(network.tags["original_id"], np.empty(0))
+    # in the case of empty interface keep tracking on the condition to apply
+    dom_all_less = dict.fromkeys(network.tags["original_id"], True)
+    dom_all_more = dict.fromkeys(network.tags["original_id"], True)
 
     # do only this computation only for the higher dimensional grids
     for g in gb.grids_of_dimension(gb.dim_max()):
         # get the data for the current grid
         d = gb.node_props(g)
+        f_id = int(np.atleast_1d(g.tags["original_id"])[0])
 
         # for the current grid compute the flux at each face, 1 co-dimensional grid edge included
         flux = _get_flux(g, d, gb.edges_of_node(g), scheme.flux, scheme.mortar)
 
         # compute the new points according to the interface
-        f_id = int(np.atleast_1d(g.tags["original_id"])[0])
-        new_pts, cond_pts = _has_interface(g, d, scheme, flux, condition_interface, tol)
+        new_pts, cond_pts, all_less, all_more = _has_interface(g, d, scheme, flux, condition_interface, tol)
 
         # save the information
         dom_pts[f_id] = np.hstack((dom_pts[f_id], new_pts))
         dom_cond[f_id] = np.hstack((dom_cond[f_id], cond_pts))
+        dom_flux[f_id] = np.hstack((dom_flux[f_id], flux))
+        dom_all_less[f_id] = dom_all_less[f_id] and all_less
+        dom_all_more[f_id] = dom_all_more[f_id] and all_more
 
     new_network_pts = np.empty((3, 0))
     new_network_edges = np.empty((2, 0), dtype=np.int)
@@ -58,11 +66,16 @@ def detect_interface(gb, network, network_original, scheme, condition_interface,
         dim = np.logical_not(np.isclose(check/np.sum(check), 0, atol=1e-5, rtol=0))
         mask = np.argsort(pts[dim, :].ravel())
 
-        # order the points and the condition
+        # order the points
         all_pts = all_pts[:, mask]
-        cond = cond[:, mask]
 
-        # we need to flip the condition
+        # the order is flipped, we need to restore the order coherent with the original pts
+        if not np.allclose(all_pts[:, 0], pts_original[:, 0]):
+            all_pts = np.fliplr(all_pts)
+            mask = mask[::-1]
+
+        cond = cond[:, mask]
+        # we need to flip the condition, this works for at least two interfaces
         if np.any(np.sort(mask[1:-1]) != mask[1:-1]):
             cond = np.flipud(cond)
 
@@ -72,6 +85,14 @@ def detect_interface(gb, network, network_original, scheme, condition_interface,
         mask = np.setdiff1d(mask, cond.shape[1] - 1)
         # inherit the condition from the left
         cond[:, mask] = cond[0, mask+1]
+
+        # special case where only the original points are present and no new internal interface
+        if cond.shape[1] == 2:
+            if dom_all_less[f_id]:
+                cond[1, 0] = 1
+            elif dom_all_more[f_id]:
+                cond[1, 0] = 0
+
         # set the condition for the edges
         new_network_tag_condition = np.hstack((new_network_tag_condition, cond[1, :-1]))
 
@@ -136,6 +157,9 @@ def _has_interface(g, d, scheme, flux, condition_interface, evaluation_tol=1e-5,
     # surface coordinates in 1d and 2d)
     R = pp.map_geometry.project_line_matrix(g.nodes, tol=1e-5)
     f_centers = np.dot(R, g.face_centers)
+    # check if the ordering is flip due to the rotation matrix
+    #is_flip = np.sign(np.arctan2(R[2, 1], R[2, 2])) ## old version
+    is_flip = np.sign(np.arccos((np.trace(R)-1)/2.))
     node_coords = np.dot(R, g.nodes)
 
     # determine which dimension is active
@@ -162,6 +186,10 @@ def _has_interface(g, d, scheme, flux, condition_interface, evaluation_tol=1e-5,
     # a False the condition is satisfied with a >
     interface_cond = np.empty((2, 0), dtype=np.bool)
 
+    # consider if all the faces have condition less or more the interface condition
+    all_less = True
+    all_more = True
+
     for c in np.arange(g.num_cells):
         # For the current cell retrieve its faces
         loc = slice(g.cell_faces.indptr[c], g.cell_faces.indptr[c + 1])
@@ -183,6 +211,9 @@ def _has_interface(g, d, scheme, flux, condition_interface, evaluation_tol=1e-5,
                     R,
                 )
             check[idx] = condition_interface(np.dot(P, flux[faces_loc]), "<", evaluation_tol)
+
+        all_less = all_less and np.all(check[idx])
+        all_more = all_more and np.all(np.logical_not(check[idx]))
 
         # if the condition is valid for a cell-boundary we might need to compute internally
         if not(np.all(check) or np.all(np.logical_not(check))) and np.any(check):
@@ -213,7 +244,8 @@ def _has_interface(g, d, scheme, flux, condition_interface, evaluation_tol=1e-5,
             # store the interface point
             interface_pts = np.hstack((interface_pts, np.vstack((probe_pt, True))))
             # check the ordering
-            ordering = np.all(np.equal(np.sign(probe_pt - f_centers[:, faces_loc]), [1, -1]))
+            supposed_ordering = np.array([1, -1])*is_flip
+            ordering = np.all(np.equal(np.sign(probe_pt - f_centers[:, faces_loc]), supposed_ordering))
             check = check if ordering else np.invert(check)
             interface_cond = np.hstack((interface_cond, np.atleast_2d(check).T))
 
@@ -221,6 +253,6 @@ def _has_interface(g, d, scheme, flux, condition_interface, evaluation_tol=1e-5,
     pts = np.zeros((3, interface_pts.shape[1]))
     pts[dim] = interface_pts[0]
 
-    return np.dot(R.T, pts + node_t), interface_cond
+    return np.dot(R.T, pts + node_t), interface_cond, all_less, all_more
 
 # ------------------------------------------------------------------------------#
