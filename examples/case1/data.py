@@ -8,7 +8,7 @@ def test_data():
 
 # ------------------------------------------------------------------------------#
 
-def perm(g, d):
+def perm(g, d, flow_solver):
     # set a fake permeability for the 0d grids
     if g.dim == 0:
         return np.zeros(g.num_cells)
@@ -25,27 +25,28 @@ def perm(g, d):
 
 # ------------------------------------------------------------------------------#
 
-def source(g, d):
+def source(g, d, flow_solver):
     # set zero source term for the 0d grids
     if g.dim == 0:
         return np.zeros(g.num_cells)
 
-    cond1 = g.cell_centers[0, :] <= 0.3
-    cond2 = np.logical_and(g.cell_centers[0, :] > 0.3,
-                           g.cell_centers[0, :] < 0.7)
-    cond3 = g.cell_centers[0, :] >= 0.7
+    dx = 0
+    cond1 = g.cell_centers[dx, :] <= 0.3
+    cond2 = np.logical_and(g.cell_centers[dx, :] > 0.3,
+                           g.cell_centers[dx, :] < 0.7)
+    cond3 = g.cell_centers[dx, :] >= 0.7
 
     rhs = g.cell_volumes.copy()
     rhs[cond1] *= 10
     rhs[cond2] *= 1
     rhs[cond3] *= 5
 
-    #return rhs
-    return g.cell_volumes
+    return rhs
+    #return g.cell_volumes
 
 # ------------------------------------------------------------------------------#
 
-def bc(g, data, tol):
+def bc(g, data, tol, flow_solver):
     b_faces = g.tags["domain_boundary_faces"].nonzero()[0]
     b_face_centers = g.face_centers[:, b_faces]
 
@@ -64,7 +65,7 @@ def bc(g, data, tol):
     labels[in_flow] = "dir"
     labels[out_flow] = "dir"
     bc_val[b_faces[in_flow]] = 0
-    bc_val[b_faces[out_flow]] = 0.01
+    bc_val[b_faces[out_flow]] = 0.2
 
     return labels, bc_val
 
