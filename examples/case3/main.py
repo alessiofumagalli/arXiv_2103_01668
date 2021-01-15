@@ -33,9 +33,10 @@ def main():
     mesh_kwargs = {"mesh_size_frac": mesh_size, "mesh_size_min": mesh_size / 20}
 
     # read and mark the original fracture network, the fractures id will be preserved
-    file_name = "network.csv"
+    file_name = "network_split.csv"
     domain = {"xmin": 0, "xmax": 1, "ymin": -1, "ymax": 1}
     network = pp.fracture_importer.network_2d_from_csv(file_name, domain=domain)
+    import pdb; pdb.set_trace()
     # set the original id
     network.tags["original_id"] = np.arange(network.num_frac, dtype=np.int)
     # save the original network
