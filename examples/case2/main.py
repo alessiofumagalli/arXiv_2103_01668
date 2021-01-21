@@ -49,15 +49,13 @@ def main():
     cond = lambda flux, op, tol=0: condition_interface(flux_threshold, flux, op, tol)
 
     file_name = "case2"
-    folder_name = "./solution/"
+    folder_name = "./linear/"
     variable_to_export = [Flow.pressure, Flow.P0_flux, "original_id", "condition"]
 
     iteration = 0
-    max_iteration = 20
+    max_iteration = 1e3
     okay = False
     while not okay:
-
-        # INSERIRE LA SORGENTE VETTORIALE PER VEDERE IL CASO DELLA NON-UNICITA'
 
         print("iteration", iteration)
 

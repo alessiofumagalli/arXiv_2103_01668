@@ -2,7 +2,7 @@ import numpy as np
 import porepy as pp
 import scipy.sparse as sps
 
-from non_linear_data import test_data
+from data import test_data
 
 import sys; sys.path.insert(0, "../../src/")
 from flow import Flow
@@ -49,15 +49,14 @@ def main():
     cond = lambda flux, op, tol=0: condition_interface(flux_threshold, flux, op, tol)
 
     file_name = "case3"
-    folder_name = "./non_linear/"
+    folder_name = "./linear/"
     variable_to_export = [Flow.pressure, Flow.P0_flux, "original_id", "condition"]
 
     iteration = 0
     max_iteration = 50
-    max_iteration_non_linear = 50
-    max_err_non_linear = 1e-4
     okay = False
     while not okay:
+
         print("iteration", iteration)
 
         # create the grid bucket
@@ -65,49 +64,12 @@ def main():
 
         # create the discretization
         discr = Flow(gb)
+        discr.set_data(test_data())
 
-        # the mesh is changed as well as the interface, do not use the solution at previous step
-        # initialize the non-linear algorithm by setting zero the flux which is equivalent to get
-        # the Darcy solution at the first iteration
-        for g, d in gb:
-            d.update({pp.STATE: {}})
-            d[pp.STATE].update({Flow.P0_flux: np.zeros((3, g.num_cells))})
-            d[pp.STATE].update({Flow.P0_flux + "_old": np.zeros((3, g.num_cells))})
-
-        # non-linear problem solution with a fixed point strategy
-        err_non_linear = max_err_non_linear + 1
-        iteration_non_linear = 0
-        while err_non_linear > max_err_non_linear and iteration_non_linear < max_iteration_non_linear:
-
-            # solve the linearized problem
-            discr.set_data(test_data())
-            A, b = discr.matrix_rhs()
-            x = sps.linalg.spsolve(A, b)
-            discr.extract(x)
-
-            # compute the exit condition
-            all_flux = np.empty((3, 0))
-            all_flux_old = np.empty((3, 0))
-            all_cell_volumes = np.empty(0)
-            for g, d in gb:
-                # collect the current flux
-                flux = d[pp.STATE][Flow.P0_flux]
-                all_flux = np.hstack((all_flux, flux))
-                # collect the old flux
-                flux_old = d[pp.STATE][Flow.P0_flux + "_old"]
-                all_flux_old = np.hstack((all_flux_old, flux_old))
-                # collect the cell volumes
-                all_cell_volumes = np.hstack((all_cell_volumes, g.cell_volumes))
-                # save the old flux
-                d[pp.STATE][Flow.P0_flux + "_old"] = flux
-
-            # compute the error and normalize the result
-            err_non_linear = np.sum(all_cell_volumes * np.linalg.norm(all_flux - all_flux_old, axis=0))
-            norm_flux_old = np.sum(all_cell_volumes * np.linalg.norm(all_flux_old, axis=0))
-            err_non_linear = err_non_linear / norm_flux_old if norm_flux_old != 0 else err_non_linear
-
-            print("iteration non-linear problem", iteration_non_linear, "error", err_non_linear)
-            iteration_non_linear += 1
+        # problem solution
+        A, b = discr.matrix_rhs()
+        x = sps.linalg.spsolve(A, b)
+        discr.extract(x)
 
         # exporter
         save = pp.Exporter(gb, "sol_" + file_name, folder_name=folder_name)

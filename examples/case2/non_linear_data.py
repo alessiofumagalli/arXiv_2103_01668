@@ -13,12 +13,15 @@ def perm(g, d, flow_solver):
     if g.dim == 0:
         return np.zeros(g.num_cells)
 
-    # here is the condition satisfied with a <
+    # cell flux
+    flux_norm = np.linalg.norm(d[pp.STATE][flow_solver.P0_flux], axis=0)
+
+    # here is the condition satisfied with a < which is \Omega_1
     if g.tags["condition"] == 1:
         return 1 * np.ones(g.num_cells)
-    # here is the condition satisfied with a >
+    # here is the condition satisfied with a > which is \Omega_2
     elif g.tags["condition"] == 0:
-        return 10 * np.ones(g.num_cells)
+        return 1 + 7*flux_norm
     else:
         import pdb; pdb.set_trace()
         raise ValueError
@@ -61,6 +64,7 @@ def vector_source(g, d, flow_solver):
     return vect
 
 # ------------------------------------------------------------------------------#
+
 
 def bc(g, data, tol, flow_solver):
     b_faces = g.tags["domain_boundary_faces"].nonzero()[0]

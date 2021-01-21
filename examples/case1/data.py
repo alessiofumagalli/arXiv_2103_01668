@@ -4,7 +4,7 @@ import porepy as pp
 # ------------------------------------------------------------------------------#
 
 def test_data():
-    return {"k": perm, "bc": bc, "source": source, "tol": 1e-6}
+    return {"k": perm, "bc": bc, "source": source, "vector_source": vector_source, "tol": 1e-6}
 
 # ------------------------------------------------------------------------------#
 
@@ -13,10 +13,10 @@ def perm(g, d, flow_solver):
     if g.dim == 0:
         return np.zeros(g.num_cells)
 
-    # here is the condition satisfied with a <
+    # here is the condition satisfied with a < which is \Omega_1
     if g.tags["condition"] == 1:
-        return 1 * np.ones(g.num_cells)
-    # here is the condition satisfied with a >
+        return np.ones(g.num_cells)
+    # here is the condition satisfied with a > which is \Omega_2
     elif g.tags["condition"] == 0:
         return 10 * np.ones(g.num_cells)
     else:
@@ -37,12 +37,25 @@ def source(g, d, flow_solver):
     cond3 = g.cell_centers[dx, :] >= 0.7
 
     rhs = g.cell_volumes.copy()
-    rhs[cond1] *= 10
-    rhs[cond2] *= 1
-    rhs[cond3] *= 5
+    rhs[cond1] *= 1
+    rhs[cond2] *= -1
+    rhs[cond3] *= 1
 
     return rhs
-    #return g.cell_volumes
+
+# ------------------------------------------------------------------------------#
+
+def vector_source(g, d, flow_solver):
+
+    if g.dim == 0:
+        return np.zeros((g.num_cells, 3))
+
+    cell_volumes = g.cell_volumes.copy()
+
+    vect = np.vstack(
+            (5*1e-2*cell_volumes, np.zeros(g.num_cells), np.zeros(g.num_cells))
+            ).ravel(order="F")
+    return vect
 
 # ------------------------------------------------------------------------------#
 
@@ -65,7 +78,7 @@ def bc(g, data, tol, flow_solver):
     labels[in_flow] = "dir"
     labels[out_flow] = "dir"
     bc_val[b_faces[in_flow]] = 0
-    bc_val[b_faces[out_flow]] = 0.2
+    bc_val[b_faces[out_flow]] = 0
 
     return labels, bc_val
 

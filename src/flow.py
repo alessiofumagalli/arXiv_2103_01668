@@ -51,8 +51,8 @@ class Flow(object):
 
             # no source term is assumed by the user
             param["second_order_tensor"] = pp.SecondOrderTensor(kxx=k, kyy=1, kzz=1)
-
             param["source"] = data["source"](g, d, self)
+            param["vector_source"] = data["vector_source"](g, d, self)
 
             # Boundaries
             b_faces = g.tags["domain_boundary_faces"].nonzero()[0]
