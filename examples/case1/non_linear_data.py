@@ -18,10 +18,10 @@ def perm(g, d, flow_solver):
 
     # here is the condition satisfied with a < which is \Omega_1
     if g.tags["condition"] == 1:
-        return 10 * np.ones(g.num_cells)
+        return np.ones(g.num_cells)
     # here is the condition satisfied with a > which is \Omega_2
     elif g.tags["condition"] == 0:
-        return 10 + 50*flux_norm
+        return 1/(0.01 + 3*flux_norm)
     else:
         import pdb; pdb.set_trace()
         raise ValueError

@@ -28,7 +28,7 @@ def main():
     tol = 1e-10
 
     # assign the flag for the low permeable fractures
-    mesh_size = 0.5*1e-2
+    mesh_size = 1e-2
     tol_network = mesh_size
     mesh_kwargs = {"mesh_size_frac": mesh_size, "mesh_size_min": mesh_size / 20}
 
@@ -54,7 +54,7 @@ def main():
 
     iteration = 0
     max_iteration = 50
-    max_iteration_non_linear = 50
+    max_iteration_non_linear = 200
     max_err_non_linear = 1e-4
     okay = False
     while not okay:
