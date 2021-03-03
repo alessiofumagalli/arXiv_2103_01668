@@ -1,7 +1,7 @@
 # Model adaptation in a discrete fracture network: existence of solutions and numerical strategies
 
 Source code and examples for the paper<br>
-"*Model adaptation in a discrete fracture network: existence of solutions and numerical strategies*" by Alessio Fumagalli, Francesco Saverio Patacchini. See [arXiv pre-print](https://arxiv.org/abs/XXX).
+"*Model adaptation in a discrete fracture network: existence of solutions and numerical strategies*" by Alessio Fumagalli, Francesco Saverio Patacchini. See [arXiv pre-print](https://arxiv.org/abs/2103.01668).
 
 
 # Reproduce results from paper
@@ -31,7 +31,7 @@ some interesting behaviors of our adaptive model on a single fracture and small
 networks of intersecting fractures.
 
 # Citing
-If you use this work in your research, we ask you to cite the following publication [arXiv: XX [math.NA]](https://arxiv.org/abs/XX).
+If you use this work in your research, we ask you to cite the following publication [arXiv: 2103.01668 [math.NA]](https://arxiv.org/abs/2103.01668).
 
 # PorePy version
 If you want to run the code you need to install [PorePy](https://github.com/pmgbergen/porepy) and revert to commit 26857d19a5e77a880c245495867428a945326b19 <br>
